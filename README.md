@@ -2,7 +2,9 @@
 
 Quiz interativo em tempo real. O apresentador projeta o QR Code e até **250 participantes** entram pelo celular, sem precisar de conta, e respondem ao vivo.
 
-Stack: Node.js 18+ · Express · Socket.IO (WebSocket) · front-end em HTML/JS puro, sem etapa de build. Os quizzes e resultados ficam salvos em `data/db.json`, e as imagens em `data/uploads/`.
+Stack: Node.js 18+ · Express · Socket.IO (WebSocket) · front-end em HTML/JS puro, sem etapa de build.
+
+**O servidor não grava nada em disco.** Os quizzes (com as imagens, já reduzidas) e os resultados ficam salvos no navegador do apresentador; para trocar de computador, use **Backup / Importar** em /admin. Por isso o app roda em hospedagens gratuitas, cujo disco é apagado (ex.: Render Free).
 
 ## Rodando localmente
 
@@ -10,7 +12,6 @@ Stack: Node.js 18+ · Express · Socket.IO (WebSocket) · front-end em HTML/JS p
 npm install
 ADMIN_PASSWORD=minhasenha npm start
 # abra http://localhost:3000/admin
-npm run seed -- http://localhost:3000 minhasenha   # (opcional) cria um quiz de exemplo
 ```
 
 Para testar com celulares na mesma rede Wi-Fi, acesse pelo IP da máquina (ex.: `http://192.168.0.10:3000/admin`). Assim o QR Code aponta para um endereço que o celular alcança.
@@ -22,31 +23,32 @@ Para testar com celulares na mesma rede Wi-Fi, acesse pelo IP da máquina (ex.: 
 | `ADMIN_PASSWORD` | `admin` | Senha da área administrativa. **Troque em produção.** |
 | `PUBLIC_URL` | (endereço acessado) | URL pública usada no QR Code, ex.: `https://quiz.suaempresa.com.br` |
 | `PORT` | `3000` | Porta HTTP |
-| `DATA_DIR` | `./data` | Onde ficam `db.json` e as imagens |
 | `MAX_PARTICIPANTS` | `250` | Limite por sessão |
 
 ## Publicação
 
 O app precisa de **um único processo Node com WebSocket**. Funciona em qualquer VPS, Render, Railway, Fly.io etc.
 
+**Render (gratuito):** New › Web Service › conectar o repositório › Build `npm install` › Start `npm start` › Instance type **Free** › variável `ADMIN_PASSWORD`. O endereço do QR Code é detectado sozinho. O serviço dorme após 15 min sem uso: abra o link 1–2 min antes do evento.
+
+**Docker:**
 ```bash
 docker build -t quiz-ao-vivo .
-docker run -d -p 3000:3000 -v quiz-data:/data -e ADMIN_PASSWORD=... -e PUBLIC_URL=https://... quiz-ao-vivo
+docker run -d -p 3000:3000 -e ADMIN_PASSWORD=... -e PUBLIC_URL=https://... quiz-ao-vivo
 ```
 
 - Use HTTPS (a câmera do celular abre links https sem aviso).
 - Atrás de Nginx, repasse os cabeçalhos de WebSocket (`Upgrade`/`Connection`).
 - Rode **uma instância só**: o estado da sessão ao vivo fica em memória. Uma instância pequena (1 vCPU / 512 MB) aguenta 250 participantes com folga.
-- Mantenha `DATA_DIR` num volume persistente.
 
 ## Como usar
 
-1. **/admin**: crie o quiz (título, descrição, capa, mensagens de abertura e encerramento, perguntas com 2 a 6 alternativas, tempo de 5 a 120 s, pontuação, imagens). Para reordenar as perguntas, arraste pelo ⠿. O editor salva sozinho.
+1. **/admin**: crie o quiz (ou carregue o quiz de exemplo) (título, descrição, capa, mensagens de abertura e encerramento, perguntas com 2 a 6 alternativas, tempo de 5 a 120 s, pontuação, imagens). Para reordenar as perguntas, arraste pelo ⠿. O editor salva sozinho.
 2. **Pré-visualizar**: simula o celular do participante, passo a passo.
 3. **Iniciar**: abre a tela do apresentador com QR Code, código da sala e nomes de quem entrou. Ponha em tela cheia (F) no projetor.
 4. Os participantes escaneiam o QR Code, digitam o nome e esperam. Também podem acessar `/join` e digitar o código.
 5. Para conduzir o quiz, use os botões da barra inferior ou os atalhos: **Espaço/→** avança, **P** pausa ou retoma, **H** oculta os controles. Pelo painel 👥 você remove participantes. Também dá para bloquear novas entradas.
-6. No final, exporte para **Excel** ou **CSV**. O histórico fica em /admin › Resultados.
+6. No final, exporte para **Excel** ou **CSV**. O resultado também fica salvo no navegador, em /admin › Resultados.
 
 ## Regras de pontuação
 
@@ -71,4 +73,4 @@ Resultado do teste de carga com 250 clientes: entradas em p95 = 2 ms; respostas 
 
 ## Reconexão
 
-Se o participante recarregar a página ou perder o sinal, ele volta automaticamente com o mesmo nome e a mesma pontuação (o identificador fica salvo no navegador). Se o servidor reiniciar durante uma sessão, essa sessão se perde, mas os quizzes e os resultados já encerrados continuam salvos.
+Se o participante recarregar a página ou perder o sinal, ele volta automaticamente com o mesmo nome e a mesma pontuação (o identificador fica salvo no navegador). Se o servidor reiniciar durante uma sessão, essa sessão se perde; os quizzes e os resultados já encerrados continuam salvos no navegador do apresentador.

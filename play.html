@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#3b25b8">
+<title>Participar do quiz</title>
+<link rel="stylesheet" href="/css/app.css">
+<link rel="stylesheet" href="/css/play.css">
+</head>
+<body class="play">
+<div id="conn" class="conn hidden">Reconectando…</div>
+<div class="pv" id="root"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/play-ui.js"></script>
+<script>
+const root = $('#root');
+let code = (location.pathname.match(/^\/j\/([A-Za-z0-9]+)/) || [])[1];
+code = code ? code.toUpperCase() : null;
+const key = c => 'quiz_p_' + c;
+const saved = c => { try { return JSON.parse(localStorage.getItem(key(c)) || 'null'); } catch { return null; } };
+const remember = (c, d) => { try { d ? localStorage.setItem(key(c), JSON.stringify(d)) : localStorage.removeItem(key(c)); } catch {} };
+
+let socket = null, ui = null, joined = false;
+
+function screenCode(err) {
+  root.innerHTML = `<div class="pv-main"><div class="pv-card pv-center">
+    <h1>Entrar no quiz</h1><p class="muted">Digite o código exibido na tela</p>
+    <form id="f"><input class="code-input" id="c" type="text" maxlength="6" autocomplete="off" autocapitalize="characters" placeholder="CÓDIGO" required>
+    <p class="pv-err">${esc(err || '')}</p><button class="primary">Continuar</button></form></div></div>`;
+  $('#c').focus();
+  $('#f').onsubmit = e => {
+    e.preventDefault();
+    const c = $('#c').value.trim().toUpperCase();
+    if (c) location.href = '/j/' + encodeURIComponent(c);
+  };
+}
+
+async function screenName(err) {
+  let info;
+  try {
+    const r = await fetch('/api/sessions/' + encodeURIComponent(code) + '/info');
+    if (!r.ok) throw new Error((await r.json()).error);
+    info = await r.json();
+  } catch (e) { return screenCode(e.message || 'Sala não encontrada.'); }
+  if (info.phase === 'ended') return message('🏁', 'Este quiz já foi encerrado.', 'Obrigado pelo interesse!');
+  root.innerHTML = `<div class="pv-main"><div class="pv-card pv-center">
+    ${info.coverImage ? `<img class="pv-cover" src="${esc(info.coverImage)}" alt="">` : ''}
+    <div class="muted small">Sala ${esc(info.code)}</div>
+    <h1>${esc(info.title)}</h1>
+    ${info.locked ? '<p class="pv-err">A entrada de novos participantes está bloqueada.</p>' : `
+    <form id="f"><label for="n" style="text-align:left">Seu nome</label>
+      <input id="n" type="text" maxlength="24" autocomplete="nickname" enterkeyhint="go" placeholder="Como quer aparecer no ranking?" required>
+      <p class="pv-err" id="err">${esc(err || '')}</p>
+      <button class="primary" id="go">Entrar</button></form>`}
+  </div></div>`;
+  const f = $('#f');
+  if (!f) return;
+  const last = (() => { try { return localStorage.getItem('quiz_last_name') || ''; } catch { return ''; } })();
+  $('#n').value = last;
+  $('#n').focus();
+  f.onsubmit = e => {
+    e.preventDefault();
+    const name = $('#n').value.trim();
+    if (name.length < 2) { $('#err').textContent = 'Informe um nome com pelo menos 2 caracteres.'; return; }
+    $('#go').disabled = true; $('#go').textContent = 'Entrando…';
+    try { localStorage.setItem('quiz_last_name', name); } catch {}
+    connect({ name });
+  };
+}
+
+function message(emoji, title, sub) {
+  root.innerHTML = `<div class="pv-main pv-center"><div style="font-size:3rem">${emoji}</div><div class="pv-big">${esc(title)}</div><div class="pv-sub">${esc(sub || '')}</div></div>`;
+}
+
+function connect(creds) {
+  if (!socket) {
+    socket = io({ transports: ['websocket', 'polling'], reconnectionDelayMax: 4000 });
+    socket.on('state', v => { if (!ui) ui = createPlayUI(root, { onAnswer }); ui.render(v); });
+    socket.on('kicked', () => { remember(code, null); joined = false; socket.disconnect(); message('🚫', 'Você foi removido da sessão', 'Fale com o apresentador se achar que foi um engano.'); });
+    socket.on('disconnect', () => { if (joined) $('#conn').classList.remove('hidden'); });
+    socket.on('connect', () => {
+      $('#conn').classList.add('hidden');
+      const s = saved(code);
+      const payload = s ? { code, token: s.token } : { code, name: creds.name };
+      socket.emit('join', payload, res => {
+        if (res.ok) { joined = true; remember(code, { token: res.token, name: res.name }); return; }
+        if (s) { remember(code, null); }                    // token inválido → pede nome de novo
+        socket.disconnect(); socket = null; ui = null;
+        if (res.notFound) return screenCode(res.error);
+        screenName(res.error);
+      });
+    });
+  }
+}
+
+function onAnswer(ids) {
+  return new Promise(resolve => {
+    if (!socket || !socket.connected) return resolve({ error: 'Sem conexão. Aguarde reconectar e tente de novo.' });
+    const t = setTimeout(() => resolve({ error: 'Sem resposta do servidor. Tente de novo.' }), 8000);
+    socket.emit('answer', { optionIds: ids }, r => { clearTimeout(t); resolve(r); });
+  });
+}
+
+if (!code) screenCode();
+else if (saved(code)) { message('⏳', 'Reconectando…', ''); connect({}); }
+else screenName();
+</script>
+</body>
+</html>

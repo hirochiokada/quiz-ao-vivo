@@ -1,0 +1,144 @@
+{
+ "id": "exemplo",
+ "title": "Quiz de Boas-vindas",
+ "description": "Um aquecimento rápido de conhecimentos gerais.",
+ "coverImage": null,
+ "openingMessage": "Bem-vindos! Aponte a câmera para o QR Code, digite seu nome e aguarde o início.",
+ "closingMessage": "Obrigado por participar! Os resultados serão compartilhados em breve.",
+ "settings": {
+  "speedScoring": true,
+  "showCorrectAnswer": true,
+  "rankingMode": "during",
+  "rankingSize": 5,
+  "showPersonalScore": true,
+  "shuffleQuestions": false,
+  "shuffleOptions": false
+ },
+ "questions": [
+  {
+   "id": "x0",
+   "text": "Qual é a capital do Brasil?",
+   "image": null,
+   "timeLimit": 20,
+   "points": 1000,
+   "multiple": false,
+   "options": [
+    {
+     "id": "x1",
+     "text": "São Paulo",
+     "correct": false
+    },
+    {
+     "id": "x2",
+     "text": "Brasília",
+     "correct": true
+    },
+    {
+     "id": "x3",
+     "text": "Rio de Janeiro",
+     "correct": false
+    },
+    {
+     "id": "x4",
+     "text": "Salvador",
+     "correct": false
+    }
+   ]
+  },
+  {
+   "id": "x5",
+   "text": "Quais destes são planetas do Sistema Solar?",
+   "image": null,
+   "timeLimit": 30,
+   "points": 1500,
+   "multiple": true,
+   "options": [
+    {
+     "id": "x6",
+     "text": "Marte",
+     "correct": true
+    },
+    {
+     "id": "x7",
+     "text": "Plutão",
+     "correct": false
+    },
+    {
+     "id": "x8",
+     "text": "Vênus",
+     "correct": true
+    },
+    {
+     "id": "x9",
+     "text": "Lua",
+     "correct": false
+    },
+    {
+     "id": "x10",
+     "text": "Netuno",
+     "correct": true
+    }
+   ]
+  },
+  {
+   "id": "x11",
+   "text": "Quantos minutos tem uma partida oficial de futebol (sem acréscimos)?",
+   "image": null,
+   "timeLimit": 15,
+   "points": 1000,
+   "multiple": false,
+   "options": [
+    {
+     "id": "x12",
+     "text": "80",
+     "correct": false
+    },
+    {
+     "id": "x13",
+     "text": "90",
+     "correct": true
+    }
+   ]
+  },
+  {
+   "id": "x14",
+   "text": "Em que ano o homem pisou na Lua pela primeira vez?",
+   "image": null,
+   "timeLimit": 20,
+   "points": 1000,
+   "multiple": false,
+   "options": [
+    {
+     "id": "x15",
+     "text": "1965",
+     "correct": false
+    },
+    {
+     "id": "x16",
+     "text": "1969",
+     "correct": true
+    },
+    {
+     "id": "x17",
+     "text": "1972",
+     "correct": false
+    },
+    {
+     "id": "x18",
+     "text": "1959",
+     "correct": false
+    },
+    {
+     "id": "x19",
+     "text": "1975",
+     "correct": false
+    },
+    {
+     "id": "x20",
+     "text": "1961",
+     "correct": false
+    }
+   ]
+  }
+ ]
+}

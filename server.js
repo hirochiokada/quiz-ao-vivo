@@ -1,28 +1,23 @@
 'use strict';
+// Servidor do Quiz ao Vivo.
+// Não grava nada em disco: os quizzes ficam no navegador do apresentador e são enviados
+// ao iniciar uma sessão. Assim funciona em hospedagens gratuitas (ex.: Render), cujo disco é apagado.
 const path = require('path');
-const fs = require('fs');
 const http = require('http');
 const crypto = require('crypto');
 const express = require('express');
-const multer = require('multer');
 const QRCode = require('qrcode');
 const { Server } = require('socket.io');
 const { nanoid } = require('nanoid');
 
-const Store = require('./src/store');
-const { normalizeQuiz, validateForLive, duplicateQuiz } = require('./src/quiz');
-const { SessionManager } = require('./src/session');
-const { toCsv, toXlsx, fileName } = require('./src/export');
+const { normalizeQuiz, validateForLive } = require('./quiz');
+const { SessionManager } = require('./session');
+const { toCsv, toXlsx, fileName } = require('./export');
 
 const PORT = Number(process.env.PORT || 3000);
-const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
-const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
-const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
 if (!process.env.ADMIN_PASSWORD) console.warn('[aviso] ADMIN_PASSWORD não definido — usando a senha padrão "admin".');
-
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-const store = new Store(DATA_DIR);
 
 const app = express();
 app.set('trust proxy', true);
@@ -34,11 +29,11 @@ const io = new Server(server, {
   pingTimeout: 25000,
   cors: { origin: false },
 });
-const sessions = new SessionManager(io, store);
+const sessions = new SessionManager(io);
 
-// ---------------- autenticação do administrador
+// ---------------- autenticação do apresentador
 const adminTokens = new Map(); // token -> expira em
-const TOKEN_TTL = 12 * 3600e3;
+const TOKEN_TTL = 24 * 3600e3;
 const checkToken = t => {
   const exp = t && adminTokens.get(t);
   if (!exp) return false;
@@ -57,9 +52,10 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-app.use(express.json({ limit: '1mb' }));
+const smallJson = express.json({ limit: '100kb' });
+const bigJson = express.json({ limit: '25mb' }); // quizzes com imagens embutidas
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', smallJson, (req, res) => {
   if (!safeEqual(req.body && req.body.password || '', ADMIN_PASSWORD)) {
     return setTimeout(() => res.status(401).json({ error: 'Senha incorreta.' }), 400);
   }
@@ -69,55 +65,27 @@ app.post('/api/login', (req, res) => {
 });
 app.get('/api/me', requireAdmin, (req, res) => res.json({ ok: true }));
 
-// ---------------- quizzes
-const summary = q => ({
-  id: q.id, title: q.title, description: q.description, coverImage: q.coverImage,
-  questions: q.questions.length, updatedAt: q.updatedAt, errors: validateForLive(q),
-});
-app.get('/api/quizzes', requireAdmin, (req, res) => res.json(store.listQuizzes().map(summary)));
-app.post('/api/quizzes', requireAdmin, (req, res) => res.json(store.upsertQuiz(normalizeQuiz(req.body || {}, null))));
-app.get('/api/quizzes/:id', requireAdmin, (req, res) => {
-  const q = store.getQuiz(req.params.id);
-  q ? res.json({ ...q, errors: validateForLive(q) }) : res.status(404).json({ error: 'Quiz não encontrado.' });
-});
-app.put('/api/quizzes/:id', requireAdmin, (req, res) => {
-  const existing = store.getQuiz(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Quiz não encontrado.' });
-  const q = store.upsertQuiz(normalizeQuiz(req.body || {}, existing));
-  res.json({ ...q, errors: validateForLive(q) });
-});
-app.delete('/api/quizzes/:id', requireAdmin, (req, res) => res.json({ ok: store.deleteQuiz(req.params.id) }));
-app.post('/api/quizzes/:id/duplicate', requireAdmin, (req, res) => {
-  const q = store.getQuiz(req.params.id);
-  if (!q) return res.status(404).json({ error: 'Quiz não encontrado.' });
-  res.json(store.upsertQuiz(duplicateQuiz(q)));
-});
-app.post('/api/quizzes/:id/sessions', requireAdmin, (req, res) => {
-  const q = store.getQuiz(req.params.id);
-  if (!q) return res.status(404).json({ error: 'Quiz não encontrado.' });
-  const errors = validateForLive(q);
+// ---------------- sessões
+app.post('/api/sessions', requireAdmin, bigJson, (req, res) => {
+  const quiz = normalizeQuiz((req.body && req.body.quiz) || {}, null);
+  const errors = validateForLive(quiz);
   if (errors.length) return res.status(400).json({ error: 'Corrija o quiz antes de iniciar.', errors });
-  const s = sessions.create(q);
+  const s = sessions.create(quiz);
   res.json({ code: s.code });
 });
-
-// ---------------- sessões e resultados
 app.get('/api/sessions', requireAdmin, (req, res) => res.json(sessions.list().map(s => ({
-  code: s.code, quizId: s.quizId, title: s.quiz.title, phase: s.phase, participants: s.participants.size,
+  code: s.code, title: s.quiz.title, phase: s.phase, participants: s.participants.size,
   createdAt: new Date(s.createdAt).toISOString(),
 }))));
-app.get('/api/results', requireAdmin, (req, res) => res.json(store.listResults().map(r => ({
-  sessionId: r.sessionId, code: r.code, quizTitle: r.quizTitle, startedAt: r.startedAt, endedAt: r.endedAt,
-  participants: r.participants.length, winner: r.participants[0] ? r.participants[0].name : null,
-}))));
-app.delete('/api/results/:id', requireAdmin, (req, res) => { store.deleteResult(req.params.id); res.json({ ok: true }); });
+app.get('/api/sessions/:code/result', requireAdmin, (req, res) => {
+  const s = sessions.get(req.params.code);
+  if (!s) return res.status(404).json({ error: 'Sessão não encontrada.' });
+  res.json(s.toResult());
+});
 
-app.get('/api/export/:key.:fmt', requireAdmin, async (req, res) => {
-  if (!['csv', 'xlsx'].includes(req.params.fmt)) return res.status(404).end();
-  const live = sessions.get(req.params.key);
-  const result = live ? live.toResult() : store.getResult(req.params.key);
-  if (!result) return res.status(404).json({ error: 'Resultado não encontrado.' });
-  if (req.params.fmt === 'csv') {
+// exportação: de uma sessão ativa (GET) ou de um resultado guardado no navegador (POST)
+async function sendExport(res, result, fmt) {
+  if (fmt === 'csv') {
     res.set('Content-Type', 'text/csv; charset=utf-8');
     res.attachment(fileName(result, 'csv'));
     return res.send(toCsv(result));
@@ -126,9 +94,21 @@ app.get('/api/export/:key.:fmt', requireAdmin, async (req, res) => {
   res.set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.attachment(fileName(result, 'xlsx'));
   res.send(Buffer.from(buf));
+}
+const validResult = r => r && Array.isArray(r.questions) && Array.isArray(r.participants);
+app.get('/api/export/:code.:fmt', requireAdmin, async (req, res) => {
+  if (!['csv', 'xlsx'].includes(req.params.fmt)) return res.status(404).end();
+  const s = sessions.get(req.params.code);
+  if (!s) return res.status(404).json({ error: 'Sessão não encontrada.' });
+  sendExport(res, s.toResult(), req.params.fmt);
+});
+app.post('/api/export.:fmt', requireAdmin, bigJson, async (req, res) => {
+  if (!['csv', 'xlsx'].includes(req.params.fmt)) return res.status(404).end();
+  if (!validResult(req.body)) return res.status(400).json({ error: 'Resultado inválido.' });
+  try { await sendExport(res, req.body, req.params.fmt); } catch (e) { res.status(400).json({ error: 'Resultado inválido.' }); }
 });
 
-// público: usado pela tela de entrada e pelo QR Code
+// público: usado pela tela de entrada, pelo QR Code e pelas imagens
 const joinUrl = (req, code) => `${PUBLIC_URL || `${req.protocol}://${req.get('host')}`}/j/${code}`;
 app.get('/api/sessions/:code/info', (req, res) => {
   const s = sessions.get(req.params.code);
@@ -141,32 +121,25 @@ app.get('/api/sessions/:code/qr.svg', async (req, res) => {
   const svg = await QRCode.toString(joinUrl(req, s.code), { type: 'svg', margin: 1, errorCorrectionLevel: 'M' });
   res.set('Content-Type', 'image/svg+xml').set('Cache-Control', 'private, max-age=3600').send(svg);
 });
-
-// ---------------- upload de imagens
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: UPLOAD_DIR,
-    filename: (req, file, cb) => {
-      const ext = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp' }[file.mimetype];
-      cb(null, nanoid(16) + ext);
-    },
-  }),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => cb(null, /^image\/(jpeg|png|gif|webp)$/.test(file.mimetype)),
-});
-app.post('/api/upload', requireAdmin, (req, res) => {
-  upload.single('image')(req, res, err => {
-    if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Imagem maior que 5 MB.' : 'Falha no upload.' });
-    if (!req.file) return res.status(400).json({ error: 'Envie uma imagem JPG, PNG, GIF ou WebP.' });
-    res.json({ url: '/uploads/' + req.file.filename });
-  });
+app.get('/img/:code/:id', (req, res) => {
+  const s = sessions.get(req.params.code);
+  const img = s && s.images.get(req.params.id);
+  if (!img) return res.status(404).end();
+  res.set('Content-Type', img.type).set('Cache-Control', 'public, max-age=86400, immutable').send(img.buf);
 });
 
 // ---------------- páginas e arquivos estáticos
-const pub = path.join(__dirname, 'public');
+// todos os arquivos ficam na mesma pasta; só os listados aqui são públicos
+const pub = __dirname;
 const page = f => (req, res) => res.sendFile(path.join(pub, f));
-app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d', immutable: true }));
-app.use(express.static(pub, { index: false, maxAge: '1h' }));
+const STATIC = {
+  '/css/app.css': 'app.css', '/css/play.css': 'play.css',
+  '/js/common.js': 'common.js', '/js/play-ui.js': 'play-ui.js', '/js/editor.js': 'editor.js', '/js/host.js': 'host.js',
+  '/exemplo.json': 'exemplo.json',
+};
+for (const [url, file] of Object.entries(STATIC)) {
+  app.get(url, (req, res) => res.set('Cache-Control', 'public, max-age=600').sendFile(path.join(pub, file)));
+}
 app.get('/', (req, res) => res.redirect('/admin'));
 app.get('/admin', page('admin.html'));
 app.get('/admin/quiz/:id', page('editor.html'));
@@ -220,8 +193,5 @@ io.on('connection', socket => {
   });
 });
 
-server.listen(PORT, () => console.log(`Quiz ao Vivo rodando em http://localhost:${PORT}  (admin: /admin)`));
-process.on('SIGTERM', () => { store.flush(); process.exit(0); });
-process.on('SIGINT', () => { store.flush(); process.exit(0); });
-
+server.listen(PORT, () => console.log(`Quiz ao Vivo rodando em http://localhost:${PORT}  (apresentador: /admin)`));
 module.exports = { app, server };

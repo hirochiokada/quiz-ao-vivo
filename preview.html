@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pré-visualização · Quiz ao Vivo</title>
+<link rel="stylesheet" href="/css/app.css">
+<link rel="stylesheet" href="/css/play.css">
+<style>
+  body { background: #eceaf6; }
+  .wrap { display: flex; gap: 2rem; justify-content: center; align-items: flex-start; padding: 1.5rem; flex-wrap: wrap; }
+  .phone { width: 390px; height: 780px; max-width: 94vw; border-radius: 44px; border: 12px solid #17172b; overflow: hidden; position: relative; box-shadow: 0 30px 80px rgba(20, 10, 60, .3); background: linear-gradient(160deg, #2a1a8f 0%, #5b3df5 55%, #8e4ec6 100%); color: #fff; transform: translateZ(0); }
+  .phone .pv { min-height: 100%; height: 100%; overflow-y: auto; }
+  .phone .overlay { position: absolute; }
+  .side { width: 360px; max-width: 94vw; }
+  .steps { list-style: none; padding: 0; margin: .5rem 0 0; max-height: 360px; overflow: auto; }
+  .steps li { padding: .45rem .6rem; border-radius: 8px; font-size: .9rem; cursor: pointer; }
+  .steps li:hover { background: #f3f1fb; }
+  .steps li.cur { background: var(--brand-soft); color: var(--brand); font-weight: 700; }
+</style>
+</head>
+<body>
+<header class="topbar"><div class="inner">
+  <a class="logo" href="/admin"><span class="dot"></span>Quiz ao Vivo</a>
+  <span class="badge">Pré-visualização</span>
+  <div class="grow"></div>
+  <a class="btn small" id="editLink">Editar quiz</a>
+</div></header>
+
+<div class="wrap">
+  <div class="phone"><div class="pv" id="root"></div></div>
+  <div class="side card">
+    <h3 id="qTitle" style="margin-bottom:.2rem"></h3>
+    <p class="muted small" style="margin-top:0">Simula o que o participante vê no celular, com as configurações atuais. Nada é registrado.</p>
+    <div class="row">
+      <button id="prev">← Voltar</button>
+      <button id="next" class="primary grow" style="justify-content:center">Avançar →</button>
+    </div>
+    <ul class="steps" id="steps"></ul>
+    <div id="issues" style="margin-top:1rem"></div>
+  </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script src="/js/play-ui.js"></script>
+<script>
+const id = location.pathname.split('/').pop();
+$('#editLink').href = '/admin/quiz/' + id;
+let quiz, steps = [], cur = 0, ui, score = 0, answers = {}, timer = null, startedAt = 0, remaining = 0;
+
+function buildSteps() {
+  steps = [{ phase: 'lobby', label: 'Sala de espera' }];
+  quiz.questions.forEach((q, i) => {
+    steps.push({ phase: 'question', i, label: `Pergunta ${i + 1}` });
+    steps.push({ phase: 'reveal', i, label: `  Resultado da ${i + 1}` });
+    if (quiz.settings.rankingMode === 'during') steps.push({ phase: 'leaderboard', i, label: `  Classificação` });
+  });
+  steps.push({ phase: 'ended', label: 'Encerramento' });
+}
+
+function correctOf(q, ids) {
+  const c = q.options.filter(o => o.correct).map(o => o.id).sort();
+  const s = [...new Set(ids)].sort();
+  return s.length === c.length && s.every((x, k) => x === c[k]);
+}
+
+function viewFor(step) {
+  const st = quiz.settings;
+  const q = step.i != null ? quiz.questions[step.i] : null;
+  const showRank = (st.rankingMode === 'during' && (step.phase === 'leaderboard' || step.phase === 'ended')) || (st.rankingMode === 'end' && step.phase === 'ended');
+  // pontuação acumulada até esta etapa
+  let total = 0;
+  quiz.questions.forEach((qq, k) => {
+    const a = answers[qq.id];
+    const counted = step.phase === 'ended' || (step.i != null && (k < step.i || (k === step.i && step.phase !== 'question')));
+    if (a && counted) total += a.points;
+  });
+  const fake = [{ name: 'Ana', score: Math.round(total * 1.1) + 300 }, { name: 'Você (prévia)', score: total }, { name: 'Bruno', score: Math.max(0, total - 400) }, { name: 'Carla', score: Math.round(total * .6) }]
+    .sort((a, b) => b.score - a.score).map((r, k) => ({ ...r, rank: k + 1 }));
+  const lb = st.rankingSize ? fake.slice(0, st.rankingSize) : fake;
+  const mine = fake.find(r => r.name === 'Você (prévia)');
+  const v = {
+    code: 'PREVIA', phase: step.phase, paused: false,
+    quiz: { title: quiz.title, description: quiz.description, coverImage: quiz.coverImage, openingMessage: quiz.openingMessage, closingMessage: step.phase === 'ended' ? quiz.closingMessage : '', total: quiz.questions.length },
+    me: { name: 'Você (prévia)' },
+  };
+  if (st.showPersonalScore && step.phase !== 'lobby') v.me.score = total;
+  if (q) {
+    v.question = { index: step.i, total: quiz.questions.length, text: q.text, image: q.image, multiple: q.multiple, timeLimit: q.timeLimit, points: q.points,
+      options: q.options.map(o => ({ id: o.id, text: o.text })), remainingMs: remaining };
+    const a = answers[q.id];
+    if (step.phase === 'question' && a) v.myAnswer = a.ids;
+    if (step.phase === 'reveal' || step.phase === 'leaderboard') {
+      v.myAnswer = a ? a.ids : [];
+      v.result = { answered: !!a, correct: st.showCorrectAnswer ? !!(a && a.correct) : null, points: st.showPersonalScore ? (a ? a.points : 0) : null };
+      v.reveal = { correctIds: st.showCorrectAnswer ? q.options.filter(o => o.correct).map(o => o.id) : null };
+    }
+  }
+  if (showRank) { v.me.rank = mine.rank; v.me.of = fake.length; v.me.score = total; v.leaderboard = lb; }
+  return v;
+}
+
+function show(k) {
+  cur = Math.max(0, Math.min(steps.length - 1, k));
+  const step = steps[cur];
+  clearInterval(timer);
+  if (step.phase === 'question') {
+    const q = quiz.questions[step.i];
+    delete answers[q.id];
+    remaining = q.timeLimit * 1000;
+    startedAt = performance.now();
+    timer = setInterval(() => {
+      if (performance.now() - startedAt >= q.timeLimit * 1000) { clearInterval(timer); show(cur + 1); }
+    }, 250);
+  }
+  ui.render(viewFor(step));
+  $('#steps').innerHTML = steps.map((s, i) => `<li data-i="${i}" class="${i === cur ? 'cur' : ''}">${esc(s.label)}</li>`).join('');
+  const li = $('#steps .cur'); if (li) li.scrollIntoView({ block: 'nearest' });
+  $('#prev').disabled = cur === 0;
+  $('#next').disabled = cur === steps.length - 1;
+}
+
+async function onAnswer(ids) {
+  const step = steps[cur];
+  const q = quiz.questions[step.i];
+  const elapsed = performance.now() - startedAt;
+  const ok = correctOf(q, ids);
+  const pts = !ok ? 0 : quiz.settings.speedScoring ? Math.round(q.points * (1 - 0.5 * Math.min(1, elapsed / (q.timeLimit * 1000)))) : q.points;
+  answers[q.id] = { ids, correct: ok, points: pts };
+  return { ok: true };
+}
+
+$('#next').onclick = () => show(cur + 1);
+$('#prev').onclick = () => show(cur - 1);
+$('#steps').onclick = e => { const li = e.target.closest('[data-i]'); if (li) show(+li.dataset.i); };
+
+(async () => {
+  if (!Auth.token) { location.href = '/admin?next=' + encodeURIComponent(location.pathname); return; }
+  quiz = QuizStore.get(id);
+  if (!quiz) { $('#qTitle').textContent = 'Quiz não encontrado neste navegador.'; return; }
+  quiz.errors = validateQuiz(quiz);
+  $('#qTitle').textContent = quiz.title || 'Sem título';
+  if (quiz.errors && quiz.errors.length) $('#issues').innerHTML = `<div class="errors"><b>Pendências antes de iniciar:</b><ul>${quiz.errors.map(e => `<li>${esc(e)}</li>`).join('')}</ul></div>`;
+  ui = createPlayUI($('#root'), { onAnswer });
+  buildSteps();
+  show(0);
+})().catch(e => toast(e.message, true));
+</script>
+</body>
+</html>

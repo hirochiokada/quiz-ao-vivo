@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editar quiz · Quiz ao Vivo</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header class="topbar"><div class="inner">
+  <a class="logo" href="/admin"><span class="dot"></span>Quiz ao Vivo</a>
+  <a class="btn ghost small" href="/admin">← Voltar aos quizzes</a>
+  <div class="grow"></div>
+  <span id="saveStatus" class="muted small"></span>
+</div></header>
+
+<main class="container" id="app" style="padding-bottom:7rem">
+  <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start">
+    <section class="card">
+      <h2>Informações</h2>
+      <div class="field"><label for="title">Título do quiz</label><input id="title" type="text" maxlength="120" data-k="title"></div>
+      <div class="field"><label for="description">Descrição</label><textarea id="description" maxlength="1000" data-k="description"></textarea></div>
+      <div class="field"><label>Imagem de capa (opcional)</label><div id="cover"></div></div>
+      <div class="field"><label for="openingMessage">Mensagem de abertura</label><textarea id="openingMessage" maxlength="500" data-k="openingMessage" placeholder="Exibida na sala de espera. Ex.: Bem-vindos! Prepare o celular…"></textarea></div>
+      <div class="field"><label for="closingMessage">Mensagem de encerramento</label><textarea id="closingMessage" maxlength="500" data-k="closingMessage" placeholder="Exibida no final. Ex.: Obrigado por participar!"></textarea></div>
+    </section>
+
+    <section class="card">
+      <h2>Configurações</h2>
+      <div class="field"><label class="check"><input type="checkbox" data-s="speedScoring"><span><b>Pontuação por tempo</b><br><span class="muted small">Quem acerta mais rápido ganha mais pontos (de 100% até 50% da pontuação no fim do tempo). Desmarcado: pontuação fixa.</span></span></label></div>
+      <div class="field"><label class="check"><input type="checkbox" data-s="showCorrectAnswer"><span><b>Mostrar a resposta correta</b> após cada pergunta</span></label></div>
+      <div class="field"><label class="check"><input type="checkbox" data-s="showPersonalScore"><span><b>Mostrar pontuação individual</b> no celular de cada participante</span></label></div>
+      <div class="grid2 field">
+        <div><label for="rankingMode">Exibir classificação</label>
+          <select id="rankingMode" data-s="rankingMode">
+            <option value="during">Durante o quiz (após cada pergunta)</option>
+            <option value="end">Somente no final</option>
+            <option value="never">Nunca</option>
+          </select></div>
+        <div><label for="rankingSize">Pessoas no ranking</label>
+          <select id="rankingSize" data-s="rankingSize">
+            <option value="3">Top 3</option><option value="5">Top 5</option><option value="10">Top 10</option>
+            <option value="20">Top 20</option><option value="0">Todos os participantes</option>
+          </select></div>
+      </div>
+      <div class="field"><label class="check"><input type="checkbox" data-s="shuffleQuestions"><span>Embaralhar a ordem das perguntas</span></label></div>
+      <div class="field"><label class="check"><input type="checkbox" data-s="shuffleOptions"><span>Embaralhar a ordem das alternativas</span></label></div>
+    </section>
+  </div>
+
+  <div class="section-title"><h2>Perguntas <span id="qCount" class="muted" style="font-weight:500"></span></h2>
+    <span class="muted small">Arraste pelo ⠿ para reordenar</span></div>
+  <div id="questions"></div>
+  <button id="addQ" class="big" style="width:100%;justify-content:center;border-style:dashed">+ Adicionar pergunta</button>
+</main>
+
+<div class="savebar"><div class="inner">
+  <div id="errorsBox" class="grow small"></div>
+  <a id="previewBtn" class="btn" target="_blank">Pré-visualizar</a>
+  <button id="saveBtn">Salvar</button>
+  <button id="startBtn" class="primary">▶ Iniciar sessão</button>
+</div></div>
+
+<script src="/js/common.js"></script>
+<script src="/js/editor.js"></script>
+</body>
+</html>

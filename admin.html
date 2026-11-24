@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiz ao Vivo · Administração</title>
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<header class="topbar"><div class="inner">
+  <a class="logo" href="/admin"><span class="dot"></span>Quiz ao Vivo</a>
+  <div class="grow"></div>
+  <a class="btn ghost small" href="/join" target="_blank">Entrar como participante</a>
+  <button id="logout" class="ghost small hidden">Sair</button>
+</div></header>
+
+<main class="container">
+  <section id="login" class="hidden" style="max-width:380px;margin:3rem auto">
+    <form class="card stack" id="loginForm">
+      <h2>Área do apresentador</h2>
+      <div><label for="pw">Senha</label><input id="pw" type="password" autocomplete="current-password" required></div>
+      <button class="primary big" style="width:100%;justify-content:center">Entrar</button>
+      <p class="muted small" style="margin:0">É a senha que você definiu na hospedagem (variável <code>ADMIN_PASSWORD</code>).</p>
+    </form>
+  </section>
+
+  <section id="dash" class="hidden">
+    <div id="liveWrap" class="hidden">
+      <div class="section-title"><h2>Sessões ao vivo</h2></div>
+      <div class="card"><table class="list"><thead><tr><th>Código</th><th>Quiz</th><th>Status</th><th>Participantes</th><th></th></tr></thead><tbody id="liveList"></tbody></table></div>
+    </div>
+
+    <div class="section-title"><h2>Meus quizzes</h2>
+      <div class="row" style="gap:.5rem">
+        <button id="backupBtn" class="small" title="Baixa um arquivo com todos os quizzes">⬇ Backup</button>
+        <label class="btn small" style="margin:0" title="Restaura quizzes de um arquivo de backup">⬆ Importar<input type="file" id="importFile" accept=".json,application/json" hidden></label>
+        <button id="newQuiz" class="primary">+ Novo quiz</button>
+      </div></div>
+    <p class="muted small" style="margin-top:-.5rem">Os quizzes ficam salvos <b>neste navegador</b>. Para usar em outro computador ou não perder nada, faça um backup de vez em quando.</p>
+    <div id="quizList" class="quiz-grid"></div>
+
+    <div class="section-title"><h2>Resultados</h2></div>
+    <div class="card"><table class="list"><thead><tr><th>Data</th><th>Quiz</th><th>Sala</th><th>Participantes</th><th>1º lugar</th><th>Exportar</th></tr></thead><tbody id="resultList"></tbody></table></div>
+  </section>
+</main>
+
+<script src="/js/common.js"></script>
+<script>
+const PHASES = { lobby: 'Sala de espera', question: 'Pergunta', reveal: 'Resposta', leaderboard: 'Classificação', ended: 'Encerrado' };
+
+async function boot() {
+  if (!Auth.token) return showLogin();
+  try { await api('/api/me'); } catch { return showLogin(); }
+  const next = new URLSearchParams(location.search).get('next');
+  if (next && next.startsWith('/')) return location.replace(next);
+  $('#login').classList.add('hidden');
+  $('#dash').classList.remove('hidden');
+  $('#logout').classList.remove('hidden');
+  load();
+}
+function showLogin() {
+  $('#login').classList.remove('hidden');
+  $('#dash').classList.add('hidden');
+  $('#pw').focus();
+}
+$('#loginForm').onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ password: $('#pw').value }) });
+    Auth.token = r.token;
+    boot();
+  } catch (err) { toast(err.message, true); }
+};
+$('#logout').onclick = () => { Auth.token = null; location.href = '/admin'; };
+
+async function load() {
+  const quizzes = QuizStore.list();
+  const results = ResultStore.list();
+  const live = await api('/api/sessions').catch(() => []);
+
+  $('#quizList').innerHTML = quizzes.length ? quizzes.map(q => {
+    const errors = validateQuiz(q);
+    return `
+    <div class="card quiz-card" data-id="${esc(q.id)}">
+      <div class="cover" ${q.coverImage ? `style="background-image:url('${esc(q.coverImage)}')"` : ''}></div>
+      <div class="body">
+        <h3>${esc(q.title || 'Sem título')}</h3>
+        <div class="muted small">${q.questions.length} pergunta${q.questions.length === 1 ? '' : 's'} · editado em ${fmtDate(q.updatedAt)}</div>
+        ${errors.length ? `<div style="margin-top:.5rem"><span class="badge warn" title="${esc(errors.join('\n'))}">Incompleto: ${errors.length} pendência${errors.length > 1 ? 's' : ''}</span></div>` : '<div style="margin-top:.5rem"><span class="badge ok">Pronto</span></div>'}
+      </div>
+      <div class="actions">
+        <button class="primary small" data-act="start" ${errors.length ? 'disabled title="Corrija as pendências no editor"' : ''}>▶ Iniciar</button>
+        <a class="btn small" href="/admin/quiz/${esc(q.id)}">Editar</a>
+        <a class="btn small" href="/admin/preview/${esc(q.id)}" target="_blank">Pré-visualizar</a>
+        <button class="small ghost" data-act="dup">Duplicar</button>
+        <button class="small ghost danger" data-act="del">Excluir</button>
+      </div>
+    </div>`; }).join('') : '<div class="card empty" style="grid-column:1/-1">Nenhum quiz ainda. Clique em <b>+ Novo quiz</b> para começar<br><button class="small" id="loadExample" style="margin-top:1rem">ou carregue um quiz de exemplo</button></div>';
+
+  $('#liveWrap').classList.toggle('hidden', !live.length);
+  $('#liveList').innerHTML = live.map(s => `<tr>
+    <td><b style="letter-spacing:.08em">${esc(s.code)}</b></td><td>${esc(s.title)}</td>
+    <td><span class="badge ${s.phase === 'ended' ? '' : 'ok'}">${PHASES[s.phase] || s.phase}</span></td>
+    <td>${s.participants}</td>
+    <td style="text-align:right"><a class="btn small primary" href="/host/${esc(s.code)}" target="_blank">Abrir painel</a></td></tr>`).join('');
+
+  $('#resultList').innerHTML = results.length ? results.map(r => `<tr>
+    <td>${fmtDate(r.endedAt)}</td><td>${esc(r.quizTitle)}</td><td>${esc(r.code)}</td><td>${r.participants.length}</td><td>${esc(r.participants[0] ? r.participants[0].name : '—')}</td>
+    <td class="row" style="gap:.3rem">
+      <button class="small" data-exp="xlsx" data-sid="${esc(r.sessionId)}">Excel</button>
+      <button class="small" data-exp="csv" data-sid="${esc(r.sessionId)}">CSV</button>
+      <button class="small ghost danger" data-del-result="${esc(r.sessionId)}">Excluir</button>
+    </td></tr>`).join('') : '<tr><td colspan="6" class="empty">Os resultados aparecem aqui quando um quiz ao vivo é encerrado.</td></tr>';
+}
+
+$('#newQuiz').onclick = () => {
+  const q = QuizStore.create();
+  if (QuizStore.save(q)) location.href = '/admin/quiz/' + q.id;
+};
+
+document.addEventListener('click', async e => {
+  if (!e.target.closest('#loadExample')) return;
+  const q = await (await fetch('/exemplo.json')).json();
+  q.id = uid();
+  QuizStore.save(q); load();
+});
+$('#backupBtn').onclick = () => {
+  const data = { app: 'quiz-ao-vivo', version: 1, exportedAt: new Date().toISOString(), quizzes: QuizStore.list() };
+  if (!data.quizzes.length) return toast('Nenhum quiz para salvar.', true);
+  downloadBlob(new Blob([JSON.stringify(data)], { type: 'application/json' }), `backup-quizzes-${new Date().toISOString().slice(0, 10)}.json`);
+};
+$('#importFile').onchange = async e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    const list = Array.isArray(data) ? data : data.quizzes;
+    if (!Array.isArray(list)) throw new Error();
+    let n = 0;
+    for (const q of list) {
+      if (!q || !Array.isArray(q.questions)) continue;
+      if (QuizStore.get(q.id)) q.id = uid(); // não sobrescreve um quiz existente
+      if (QuizStore.save(q)) n++;
+    }
+    toast(`${n} quiz${n === 1 ? '' : 'zes'} importado${n === 1 ? '' : 's'}.`);
+    load();
+  } catch { toast('Arquivo de backup inválido.', true); }
+};
+
+document.addEventListener('click', async e => {
+  const btn = e.target.closest('[data-act]');
+  if (btn) {
+    const id = btn.closest('[data-id]').dataset.id;
+    const q = QuizStore.get(id);
+    const act = btn.dataset.act;
+    if (act === 'start') startSession(q);
+    if (act === 'dup') {
+      const c = JSON.parse(JSON.stringify(q));
+      c.id = uid(); c.title = (q.title + ' (cópia)').slice(0, 120); c.createdAt = new Date().toISOString();
+      if (QuizStore.save(c)) { toast('Quiz duplicado.'); load(); }
+    }
+    if (act === 'del' && await confirmDialog('Excluir este quiz? Esta ação não pode ser desfeita.', 'Excluir', true)) {
+      QuizStore.remove(id); toast('Quiz excluído.'); load();
+    }
+  }
+  const exp = e.target.closest('[data-exp]');
+  if (exp) {
+    const r = ResultStore.list().find(x => x.sessionId === exp.dataset.sid);
+    if (r) downloadPost('/api/export.' + exp.dataset.exp, r, 'resultado.' + exp.dataset.exp);
+  }
+  const del = e.target.closest('[data-del-result]');
+  if (del && await confirmDialog('Excluir este resultado?', 'Excluir', true)) { ResultStore.remove(del.dataset.delResult); load(); }
+});
+setInterval(() => { if (!$('#dash').classList.contains('hidden') && !document.hidden) load().catch(() => {}); }, 10000);
+boot();
+</script>
+</body>
+</html>
