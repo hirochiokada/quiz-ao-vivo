@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teste de carga · Quiz ao Vivo</title>
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; margin: 1rem 0; }
+  .stat { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: .8rem 1rem; }
+  .stat b { display: block; font-size: 1.7rem; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: .85rem; }
+  #log { background: #17172b; color: #d8d8ee; font: 12px/1.5 ui-monospace, monospace; border-radius: 12px; padding: .8rem 1rem; height: 220px; overflow: auto; white-space: pre-wrap; }
+  .verdict { font-weight: 800; font-size: 1.1rem; padding: .8rem 1rem; border-radius: 12px; margin-top: 1rem; }
+  .verdict.ok { background: #dcf7e7; color: #0b7a3b; }
+  .verdict.bad { background: #fde3e4; color: #b4232a; }
+</style>
+</head>
+<body>
+<header class="topbar"><div class="inner">
+  <a class="logo" href="/admin"><span class="dot"></span>Quiz ao Vivo</a><span class="badge">Teste de carga</span>
+</div></header>
+<main class="container" style="max-width:900px">
+  <div class="card stack">
+    <h2>Simular participantes</h2>
+    <p class="muted" style="margin:0">
+      1) Inicie um quiz normalmente (ele abre o telão com o código da sala).<br>
+      2) Digite o código aqui, escolha quantos robôs e clique em <b>Conectar robôs</b>.<br>
+      3) Volte ao telão e conduza o quiz: os robôs respondem sozinhos, cada um com um atraso aleatório.
+    </p>
+    <div class="row">
+      <div><label for="code">Código da sala</label><input id="code" type="text" maxlength="6" style="width:150px;text-transform:uppercase;letter-spacing:.15em;font-weight:800"></div>
+      <div><label for="n">Quantidade de robôs</label><input id="n" type="number" min="1" max="250" value="250" style="width:120px"></div>
+      <div style="margin-top:1.5rem" class="row">
+        <button id="go" class="primary">Conectar robôs</button>
+        <button id="stop" disabled>Desconectar todos</button>
+      </div>
+    </div>
+    <p class="muted small" style="margin:0">Dica: no teste, uma aba só aguentou 250 robôs. Se aparecerem erros de conexão, divida: abra esta página em <b>dois navegadores diferentes</b> (ex.: Edge e Chrome) com 125 em cada. Os robôs aparecem no telão com nomes "Robô 001", "Robô 002"…</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><b id="sConn">0</b><span>conectados</span></div>
+    <div class="stat"><b id="sJoin">0</b><span>entraram na sala</span></div>
+    <div class="stat"><b id="sAns">0</b><span>respostas aceitas</span></div>
+    <div class="stat"><b id="sLat">–</b><span>tempo de resposta (95%)</span></div>
+    <div class="stat"><b id="sMax">–</b><span>pior tempo de resposta</span></div>
+    <div class="stat"><b id="sErr">0</b><span>erros</span></div>
+  </div>
+  <div id="verdict"></div>
+  <h3 style="margin-top:1.5rem">Registro</h3>
+  <div id="log"></div>
+</main>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/common.js"></script>
+<script>
+if (!Auth.token) location.href = '/admin?next=' + encodeURIComponent(location.pathname);
+const bots = [];
+const lat = [];
+let joined = 0, answers = 0, errors = 0, tag = Math.random().toString(36).slice(2, 5).toUpperCase();
+const log = msg => { const el = $('#log'); el.textContent += `[${new Date().toLocaleTimeString('pt-BR')}] ${msg}\n`; el.scrollTop = el.scrollHeight; };
+const pct = (a, p) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(s.length * p))]; };
+
+function refresh() {
+  $('#sConn').textContent = bots.filter(b => b.s.connected).length;
+  $('#sJoin').textContent = joined;
+  $('#sAns').textContent = answers;
+  $('#sLat').textContent = lat.length ? pct(lat, .95) + ' ms' : '–';
+  $('#sMax').textContent = lat.length ? Math.max(...lat) + ' ms' : '–';
+  $('#sErr').textContent = errors;
+  if (lat.length >= 20) {
+    const p95 = pct(lat, .95);
+    const ok = errors === 0 && p95 < 1500;
+    $('#verdict').innerHTML = `<div class="verdict ${ok ? 'ok' : 'bad'}">${ok
+      ? `✅ Aguentou bem: ${answers} respostas, 95% delas confirmadas em até ${p95} ms, sem erros.`
+      : `⚠️ Atenção: ${errors} erro(s) e 95% das respostas em até ${p95} ms. Veja o registro abaixo.`}</div>`;
+  }
+}
+setInterval(refresh, 500);
+
+function makeBot(i, code) {
+  const name = `Robô ${tag}${String(i + 1).padStart(3, '0')}`;
+  const s = io({ transports: ['websocket'], forceNew: true, reconnection: true });
+  const bot = { s, name, done: -1 };
+  s.on('connect_error', e => { if (!bot.err) { bot.err = true; errors++; log(`${name}: falha ao conectar (${e.message})`); } });
+  s.on('connect', () => {
+    s.emit('join', { code, name, token: bot.token }, r => {
+      if (r.ok) { if (!bot.token) joined++; bot.token = r.token; }
+      else { errors++; log(`${name}: ${r.error}`); }
+    });
+  });
+  s.on('kicked', () => log(`${name} foi removido pelo apresentador.`));
+  s.on('state', v => {
+    if (v.phase !== 'question' || !v.question || v.paused || v.myAnswer || bot.done === v.question.index) return;
+    bot.done = v.question.index;
+    const q = v.question;
+    const opts = q.options.map(o => o.id);
+    let pick = [opts[Math.floor(Math.random() * opts.length)]];
+    if (q.multiple) pick = opts.filter(() => Math.random() < .5).concat(pick).filter((x, k, a) => a.indexOf(x) === k);
+    const delay = 500 + Math.random() * Math.max(1000, Math.min(q.remainingMs, q.timeLimit * 1000) * 0.7);
+    setTimeout(() => {
+      const t = performance.now();
+      s.emit('answer', { optionIds: pick }, r => {
+        lat.push(Math.round(performance.now() - t));
+        if (r.ok) answers++;
+        else if (!/acabou|pausado|já respondeu/.test(r.error || '')) { errors++; log(`${name}: ${r.error}`); }
+      });
+    }, delay);
+  });
+  return bot;
+}
+
+$('#go').onclick = async () => {
+  const code = $('#code').value.trim().toUpperCase();
+  const n = Math.max(1, Math.min(250, parseInt($('#n').value, 10) || 0));
+  if (!code) return toast('Informe o código da sala.', true);
+  const info = await fetch('/api/sessions/' + code + '/info');
+  if (!info.ok) return toast('Sala não encontrada. Confira o código.', true);
+  $('#go').disabled = true; $('#stop').disabled = false;
+  log(`Conectando ${n} robôs na sala ${code} (cerca de 15 por segundo)…`);
+  for (let i = 0; i < n; i++) {
+    bots.push(makeBot(bots.length, code));
+    if (i % 15 === 14) await new Promise(r => setTimeout(r, 1000));
+  }
+  log('Todos os robôs foram disparados. Conduza o quiz pelo telão.');
+};
+$('#stop').onclick = () => {
+  bots.forEach(b => b.s.disconnect());
+  log(`${bots.length} robôs desconectados.`);
+  $('#stop').disabled = true; $('#go').disabled = false;
+  bots.length = 0;
+};
+window.addEventListener('beforeunload', () => bots.forEach(b => b.s.disconnect()));
+</script>
+</body>
+</html>

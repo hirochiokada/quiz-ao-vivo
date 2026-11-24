@@ -145,6 +145,7 @@ app.get('/admin', page('admin.html'));
 app.get('/admin/quiz/:id', page('editor.html'));
 app.get('/admin/preview/:id', page('preview.html'));
 app.get('/host/:code', page('host.html'));
+app.get('/teste-carga', page('stress.html'));
 app.get('/join', page('play.html'));
 app.get('/j/:code', page('play.html'));
 app.get('/favicon.ico', (req, res) => res.status(204).end());
