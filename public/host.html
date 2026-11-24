@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apresentação · Quiz ao Vivo</title>
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  body { background: #120b3a; color: #fff; overflow-x: hidden; }
+  .stage { min-height: 100vh; padding: 2.2vh 3vw 110px; display: flex; flex-direction: column; background: radial-gradient(1200px 700px at 15% 0%, #3a24c4 0%, transparent 60%), radial-gradient(900px 600px at 100% 100%, #7a2fb8 0%, transparent 60%), #120b3a; }
+  .s-top { display: flex; align-items: center; gap: 1rem; font-weight: 700; opacity: .9; }
+  .s-top .pill { background: rgba(255,255,255,.14); padding: .35rem .9rem; border-radius: 999px; }
+  h1.title { font-size: clamp(1.6rem, 3.4vw, 3.2rem); margin: 0; }
+  .lobby { flex: 1; display: grid; grid-template-columns: minmax(280px, 42vh) 1fr; gap: 4vw; align-items: center; margin-top: 2vh; }
+  .qrbox { background: #fff; border-radius: 22px; padding: 1.4vh; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .qrbox img { width: 100%; display: block; }
+  .joininfo { text-align: center; margin-top: 1.4vh; }
+  .joininfo .url { font-size: clamp(.9rem, 1.4vw, 1.25rem); opacity: .85; word-break: break-all; }
+  .bigcode { font-size: clamp(2.4rem, 6vw, 5.5rem); font-weight: 900; letter-spacing: .12em; line-height: 1; margin-top: .4rem; }
+  .count { font-size: clamp(1.2rem, 2vw, 1.8rem); font-weight: 800; margin: 1.5vh 0; display: flex; align-items: center; gap: .6rem; }
+  .names { display: flex; flex-wrap: wrap; gap: .5rem; max-height: 48vh; overflow: auto; align-content: flex-start; }
+  .chip { background: rgba(255,255,255,.14); padding: .45rem .8rem; border-radius: 999px; font-weight: 700; display: inline-flex; gap: .4rem; align-items: center; }
+  .chip.new { animation: pop .25s ease-out; }
+  .chip.off { opacity: .45; }
+  .chip button { background: none; border: 0; color: #fff; padding: 0 .1rem; opacity: .0; font-size: .9rem; }
+  .chip:hover button { opacity: .8; }
+  @keyframes pop { from { transform: scale(.6); opacity: 0; } }
+  .msg { background: rgba(255,255,255,.1); border-radius: 16px; padding: 1rem 1.2rem; font-size: clamp(1rem, 1.5vw, 1.3rem); white-space: pre-wrap; }
+
+  .qwrap { flex: 1; display: flex; flex-direction: column; gap: 2vh; margin-top: 1.5vh; }
+  .qhead { display: flex; align-items: center; gap: 2vw; }
+  .qtext { font-size: clamp(1.5rem, 3.2vw, 3rem); font-weight: 800; line-height: 1.15; flex: 1; }
+  .qimg { max-height: 34vh; max-width: 100%; object-fit: contain; border-radius: 16px; align-self: center; background: rgba(0,0,0,.2); }
+  .htimer { width: clamp(90px, 10vw, 150px); height: clamp(90px, 10vw, 150px); position: relative; flex-shrink: 0; }
+  .htimer svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .htimer .t { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 900; font-size: clamp(1.8rem, 3.4vw, 3.2rem); }
+  .answered { font-size: clamp(1rem, 1.6vw, 1.4rem); font-weight: 800; text-align: center; }
+  .hopts { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4vh 1.4vw; margin-top: auto; }
+  .hopt { border-radius: 16px; padding: 2.2vh 1.4vw; font-size: clamp(1.05rem, 2vw, 1.9rem); font-weight: 800; display: flex; align-items: center; gap: 1vw; position: relative; overflow: hidden; min-height: 9vh; }
+  .hopt .l { width: 2.1em; height: 2.1em; border-radius: 10px; background: rgba(255,255,255,.25); display: grid; place-items: center; flex-shrink: 0; font-size: .85em; }
+  .hopt .txt { flex: 1; position: relative; }
+  .hopt .n { font-variant-numeric: tabular-nums; position: relative; }
+  .hopt .bar { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(0,0,0,.22); transition: width .6s ease-out; }
+  .hopt.dim { opacity: .35; }
+  .hopt.right { outline: 5px solid #fff; }
+  .hopt .ck { position: relative; font-size: 1.3em; }
+
+  .board { max-width: 900px; width: 100%; margin: 2vh auto 0; }
+  .board h2 { text-align: center; font-size: clamp(1.6rem, 3vw, 2.8rem); }
+  .lbrow { display: flex; align-items: center; gap: 1rem; background: rgba(255,255,255,.12); border-radius: 14px; padding: 1.2vh 1.2rem; margin-bottom: .9vh; font-size: clamp(1rem, 1.8vw, 1.6rem); font-weight: 800; animation: slide .4s ease-out backwards; }
+  .lbrow .pos { width: 2.6em; text-align: center; }
+  .lbrow .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lbrow:nth-child(1) { background: linear-gradient(90deg, #f5b301, #f08c00); }
+  .lbrow:nth-child(2) { background: linear-gradient(90deg, #a9b4c2, #7d8b9c); }
+  .lbrow:nth-child(3) { background: linear-gradient(90deg, #d08a4f, #a8642f); }
+  @keyframes slide { from { transform: translateX(-30px); opacity: 0; } }
+  .lb-scroll { max-height: 62vh; overflow: auto; }
+
+  .controls { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(10,6,35,.92); backdrop-filter: blur(8px); border-top: 1px solid rgba(255,255,255,.12); padding: .7rem 1rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; z-index: 20; transition: transform .25s; }
+  .controls.hide { transform: translateY(100%); }
+  .controls button, .controls .btn { background: rgba(255,255,255,.1); color: #fff; border-color: rgba(255,255,255,.18); }
+  .controls button:hover, .controls .btn:hover { background: rgba(255,255,255,.2); }
+  .controls .primary { background: #fff; color: #2a1a8f; border-color: #fff; }
+  .controls .primary:hover { background: #ece8ff; }
+  .controls .warnb { background: #f5a524; color: #2b1a00; border-color: #f5a524; }
+  .controls .stat { font-weight: 700; font-size: .9rem; opacity: .85; margin-right: .3rem; }
+  .showctl { position: fixed; right: 12px; bottom: 12px; z-index: 19; opacity: .35; background: rgba(255,255,255,.15); color: #fff; border: 0; }
+  .showctl:hover { opacity: 1; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 92vw); background: #fff; color: var(--ink); z-index: 30; box-shadow: -10px 0 40px rgba(0,0,0,.3); display: flex; flex-direction: column; transform: translateX(105%); transition: transform .25s; }
+  .drawer.open { transform: none; }
+  .drawer header { padding: 1rem; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: .5rem; }
+  .drawer .list { overflow: auto; flex: 1; padding: .5rem; }
+  .prow { display: flex; align-items: center; gap: .5rem; padding: .45rem .5rem; border-radius: 8px; }
+  .prow:hover { background: #f5f5fb; }
+  .dotc { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); flex-shrink: 0; }
+  .dotc.off { background: #c4c4d4; }
+  .gab { font-size: .85rem; background: rgba(124,245,168,.18); color: #b8ffd2; padding: .3rem .6rem; border-radius: 8px; }
+  .paused-banner { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(10,6,35,.7); font-size: clamp(2rem, 5vw, 4.5rem); font-weight: 900; z-index: 15; pointer-events: none; }
+  .podium { display: flex; justify-content: center; align-items: flex-end; gap: 2vw; margin: 3vh 0 2vh; }
+  .pod { text-align: center; width: clamp(120px, 18vw, 240px); }
+  .pod .blk { border-radius: 14px 14px 0 0; display: grid; place-items: center; font-size: clamp(2rem, 4vw, 3.6rem); font-weight: 900; }
+  .pod .nm { font-weight: 800; font-size: clamp(1rem, 1.8vw, 1.6rem); margin-bottom: .4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pod .sc { opacity: .85; font-weight: 700; margin-bottom: .5rem; }
+  @media (max-width: 800px) { .lobby { grid-template-columns: 1fr; } .hopts { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="stage" id="stage"><div class="empty" style="color:#fff">Conectando…</div></div>
+<div id="pausedBanner" class="paused-banner hidden">⏸ Pausado</div>
+
+<button class="showctl icon hidden" id="showCtl" title="Mostrar controles (H)">☰</button>
+<div class="controls" id="controls">
+  <a class="btn small" href="/admin" title="Voltar ao painel">←</a>
+  <span class="stat" id="stat"></span>
+  <span id="gab"></span>
+  <div class="grow"></div>
+  <span id="ctlButtons" class="row" style="gap:.5rem"></span>
+  <button class="small" id="peopleBtn">👥 Participantes</button>
+  <button class="small icon" id="fsBtn" title="Tela cheia (F)">⛶</button>
+  <button class="small icon" id="hideBtn" title="Ocultar controles (H)">▾</button>
+</div>
+
+<aside class="drawer" id="drawer">
+  <header><b class="grow">Participantes <span id="dCount" class="muted"></span></b><button class="small ghost" id="dClose">✕</button></header>
+  <div style="padding:.5rem 1rem 0"><input type="text" id="dSearch" placeholder="Buscar nome…"></div>
+  <div class="list" id="dList"></div>
+  <div style="padding:.8rem 1rem;border-top:1px solid var(--line)" class="muted small">Use "Remover" para tirar quem usar um nome inadequado. Para impedir novas entradas, use "Bloquear entradas".</div>
+</aside>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/host.js"></script>
+</body>
+</html>
