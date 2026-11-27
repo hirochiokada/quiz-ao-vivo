@@ -53,7 +53,7 @@ function buildSteps() {
   quiz.questions.forEach((q, i) => {
     steps.push({ phase: 'question', i, label: `Pergunta ${i + 1}` });
     steps.push({ phase: 'reveal', i, label: `  Resultado da ${i + 1}` });
-    if (quiz.settings.rankingMode === 'during') steps.push({ phase: 'leaderboard', i, label: `  Classificação` });
+    if (quiz.settings.rankingMode === 'during' && q.showRanking !== false && i < quiz.questions.length - 1) steps.push({ phase: 'leaderboard', i, label: `  Classificação` });
   });
   steps.push({ phase: 'ended', label: 'Encerramento' });
 }

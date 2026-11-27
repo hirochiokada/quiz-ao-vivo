@@ -107,7 +107,7 @@ function updateTimer() {
 // ---------- controles
 function renderControls() {
   const last = S.question && S.question.index >= S.question.total - 1;
-  const during = S.settings.rankingMode === 'during';
+  const during = !!(S.question && S.question.rankingNext);
   const b = [];
   $('#stat').textContent = S.phase === 'question' ? `${S.answered}/${S.connected} responderam` : `${S.connected} conectados · ${S.total} inscritos`;
   if (S.phase === 'lobby') {

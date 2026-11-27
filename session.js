@@ -154,7 +154,7 @@ class LiveSession {
     if (this.phase === 'question') return this.closeQuestion();
     const last = this.index >= this.questions.length - 1;
     if (this.phase === 'reveal') {
-      if (this.settings.rankingMode === 'during') {
+      if (this.showsRankingAfter(this.index)) {
         this.phase = 'leaderboard';
         this.pushAll(); this.pushHost();
         return;
@@ -162,6 +162,12 @@ class LiveSession {
       return last ? this.end() : this.openQuestion(this.index + 1);
     }
     if (this.phase === 'leaderboard') return last ? this.end() : this.openQuestion(this.index + 1);
+  }
+
+  // classificação parcial: modo "durante", pergunta marcada e nunca depois da última (vai direto ao pódio)
+  showsRankingAfter(i) {
+    const q = this.questions[i];
+    return this.settings.rankingMode === 'during' && !!q && q.showRanking !== false && i < this.questions.length - 1;
   }
 
   openQuestion(i) {
@@ -351,6 +357,7 @@ class LiveSession {
     if (q && this.phase !== 'lobby' && this.phase !== 'ended') {
       // o apresentador sempre vê o gabarito no painel; o telão respeita a configuração
       base.question.correctIds = q.options.filter(o => o.correct).map(o => o.id);
+      base.question.rankingNext = this.showsRankingAfter(this.index);
     }
     return {
       ...base,

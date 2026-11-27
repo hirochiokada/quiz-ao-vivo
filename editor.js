@@ -100,6 +100,9 @@ function questionCard(q, i) {
           <input type="number" min="5" max="120" data-f="timeLimit" value="${q.timeLimit}" style="width:80px"></div></div>
         <div><label>Pontuação máxima</label><input type="number" min="0" max="100000" step="100" data-f="points" value="${q.points}" style="width:120px"></div>
         <label class="check" style="margin-top:1.4rem"><input type="checkbox" data-f="multiple" ${q.multiple ? 'checked' : ''}><span>Várias respostas corretas</span></label>
+        ${quiz.settings.rankingMode !== 'during' ? '' : i === quiz.questions.length - 1
+          ? '<span class="badge" style="margin-top:1.4rem">🏆 Última pergunta: vai direto para o pódio</span>'
+          : `<label class="check" style="margin-top:1.4rem"><input type="checkbox" data-f="showRanking" ${q.showRanking !== false ? 'checked' : ''}><span>📊 Mostrar classificação depois desta pergunta</span></label>`}
       </div>
       <label>Alternativas <span class="muted small" style="font-weight:400">(${q.multiple ? 'marque todas as corretas' : 'marque a correta'})</span></label>
       <div class="opts"></div>
@@ -133,6 +136,7 @@ function questionCard(q, i) {
   el.addEventListener('change', e => {
     const t = e.target;
     if (t.dataset.f === 'timeLimit') t.value = q.timeLimit;
+    if (t.dataset.f === 'showRanking') { q.showRanking = t.checked; markDirty(); }
     if (t.dataset.f === 'multiple') {
       q.multiple = t.checked;
       if (!q.multiple) { let seen = false; q.options.forEach(o => { if (o.correct && seen) o.correct = false; if (o.correct) seen = true; }); }
@@ -246,6 +250,7 @@ async function init() {
     inp.addEventListener('change', () => {
       quiz.settings[k] = inp.type === 'checkbox' ? inp.checked : (k === 'rankingSize' ? Number(inp.value) : inp.value);
       syncRankingSize();
+      if (k === 'rankingMode') renderQuestions(); // mostra/esconde a opção em cada pergunta
       markDirty();
     });
   });
