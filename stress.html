@@ -36,7 +36,7 @@
         <button id="stop" disabled>Desconectar todos</button>
       </div>
     </div>
-    <p class="muted small" style="margin:0">Dica: no teste, uma aba só aguentou 250 robôs. Se aparecerem erros de conexão, divida: abra esta página em <b>dois navegadores diferentes</b> (ex.: Edge e Chrome) com 125 em cada. Os robôs aparecem no telão com nomes "Robô 001", "Robô 002"…</p>
+    <p class="muted small" style="margin:0">Use <b>uma aba só</b>: várias abas do mesmo navegador disputam a mesma fila de conexões e geram "timeouts" que não acontecem com celulares de verdade. "Reconexões" são normais; o que importa é <b>"não conseguiram entrar"</b> ficar em 0. Os robôs aparecem no telão com nomes "Robô 001", "Robô 002"…</p>
   </div>
 
   <div class="stats">
@@ -45,8 +45,11 @@
     <div class="stat"><b id="sAns">0</b><span>respostas aceitas</span></div>
     <div class="stat"><b id="sLat">–</b><span>tempo de resposta (95%)</span></div>
     <div class="stat"><b id="sMax">–</b><span>pior tempo de resposta</span></div>
-    <div class="stat"><b id="sErr">0</b><span>erros</span></div>
+    <div class="stat"><b id="sRetry">0</b><span>reconexões (normal, não é falha)</span></div>
+    <div class="stat"><b id="sFail">0</b><span>não conseguiram entrar</span></div>
+    <div class="stat"><b id="sErr">0</b><span>respostas recusadas</span></div>
   </div>
+  <div id="perQ" class="small muted"></div>
   <div id="verdict"></div>
   <h3 style="margin-top:1.5rem">Registro</h3>
   <div id="log"></div>
@@ -58,7 +61,8 @@
 if (!Auth.token) location.href = '/admin?next=' + encodeURIComponent(location.pathname);
 const bots = [];
 const lat = [];
-let joined = 0, answers = 0, errors = 0, tag = Math.random().toString(36).slice(2, 5).toUpperCase();
+let joined = 0, answers = 0, errors = 0, retries = 0, total = 0; const perQ = {};
+let tag = Math.random().toString(36).slice(2, 5).toUpperCase();
 const log = msg => { const el = $('#log'); el.textContent += `[${new Date().toLocaleTimeString('pt-BR')}] ${msg}\n`; el.scrollTop = el.scrollHeight; };
 const pct = (a, p) => { if (!a.length) return 0; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(s.length * p))]; };
 
@@ -69,21 +73,28 @@ function refresh() {
   $('#sLat').textContent = lat.length ? pct(lat, .95) + ' ms' : '–';
   $('#sMax').textContent = lat.length ? Math.max(...lat) + ' ms' : '–';
   $('#sErr').textContent = errors;
-  if (lat.length >= 20) {
+  $('#sRetry').textContent = retries;
+  const failed = bots.filter(b => !b.token && b.gaveUp).length;
+  $('#sFail').textContent = failed;
+  const qs = Object.keys(perQ).sort((a, b) => a - b);
+  $('#perQ').innerHTML = qs.length ? 'Respostas aceitas por pergunta: ' + qs.map(k => `P${+k + 1}: <b>${perQ[k]}</b>/${joined}`).join(' · ') : '';
+  if (total && (joined + failed === total) && (lat.length >= 20 || failed)) {
     const p95 = pct(lat, .95);
-    const ok = errors === 0 && p95 < 1500;
+    const ok = failed === 0 && errors === 0 && p95 < 1500;
     $('#verdict').innerHTML = `<div class="verdict ${ok ? 'ok' : 'bad'}">${ok
-      ? `✅ Aguentou bem: ${answers} respostas, 95% delas confirmadas em até ${p95} ms, sem erros.`
-      : `⚠️ Atenção: ${errors} erro(s) e 95% das respostas em até ${p95} ms. Veja o registro abaixo.`}</div>`;
+      ? `✅ Funcionando: ${joined}/${total} robôs entraram, ${answers} respostas aceitas, 95% confirmadas em até ${p95} ms.`
+      : `⚠️ Atenção: ${failed} robô(s) não entraram, ${errors} resposta(s) recusada(s). Veja o registro abaixo.`}</div>`;
   }
 }
 setInterval(refresh, 500);
 
 function makeBot(i, code) {
   const name = `Robô ${tag}${String(i + 1).padStart(3, '0')}`;
-  const s = io({ transports: ['websocket'], forceNew: true, reconnection: true });
+  // timeout maior e várias tentativas: o navegador abre as conexões uma de cada vez
+  const s = io({ transports: ['websocket'], forceNew: true, reconnection: true, timeout: 60000, reconnectionAttempts: 8, reconnectionDelayMax: 5000 });
   const bot = { s, name, done: -1 };
-  s.on('connect_error', e => { if (!bot.err) { bot.err = true; errors++; log(`${name}: falha ao conectar (${e.message})`); } });
+  s.on('connect_error', () => { if (!bot.token) retries++; });
+  s.io.on('reconnect_failed', () => { bot.gaveUp = true; log(`${name}: NÃO conseguiu entrar depois de 8 tentativas.`); });
   s.on('connect', () => {
     s.emit('join', { code, name, token: bot.token }, r => {
       if (r.ok) { if (!bot.token) joined++; bot.token = r.token; }
@@ -103,7 +114,7 @@ function makeBot(i, code) {
       const t = performance.now();
       s.emit('answer', { optionIds: pick }, r => {
         lat.push(Math.round(performance.now() - t));
-        if (r.ok) answers++;
+        if (r.ok) { answers++; perQ[q.index] = (perQ[q.index] || 0) + 1; }
         else if (!/acabou|pausado|já respondeu/.test(r.error || '')) { errors++; log(`${name}: ${r.error}`); }
       });
     }, delay);
@@ -118,10 +129,11 @@ $('#go').onclick = async () => {
   const info = await fetch('/api/sessions/' + code + '/info');
   if (!info.ok) return toast('Sala não encontrada. Confira o código.', true);
   $('#go').disabled = true; $('#stop').disabled = false;
-  log(`Conectando ${n} robôs na sala ${code} (cerca de 15 por segundo)…`);
+  total += n;
+  log(`Conectando ${n} robôs na sala ${code} (cerca de 5 por segundo, como pessoas chegando)…`);
   for (let i = 0; i < n; i++) {
     bots.push(makeBot(bots.length, code));
-    if (i % 15 === 14) await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 200));
   }
   log('Todos os robôs foram disparados. Conduza o quiz pelo telão.');
 };
@@ -129,7 +141,8 @@ $('#stop').onclick = () => {
   bots.forEach(b => b.s.disconnect());
   log(`${bots.length} robôs desconectados.`);
   $('#stop').disabled = true; $('#go').disabled = false;
-  bots.length = 0;
+  bots.length = 0; total = 0; joined = 0; answers = 0; errors = 0; retries = 0; lat.length = 0; for (const k in perQ) delete perQ[k];
+  $('#verdict').innerHTML = '';
 };
 window.addEventListener('beforeunload', () => bots.forEach(b => b.s.disconnect()));
 </script>
